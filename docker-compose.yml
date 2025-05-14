@@ -1,0 +1,32 @@
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: google-maps-scraper
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./:/app
+    environment:
+      - HEADLESS=True
+      - MAX_WORKERS=5
+      - DEFAULT_SEARCH_QUERY=barber in Berlin
+      - DEFAULT_RESULTS_COUNT=10
+    restart: unless-stopped
+    # Adding recommended flags for Playwright in Docker
+    shm_size: "1gb"
+    ipc: host
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "1"
+          memory: 2G
+
+volumes:
+  playwright-data:
+    # Named volume to persist Playwright browser data

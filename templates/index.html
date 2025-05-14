@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Maps Scraper with SSE</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        form {
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .log-container {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+
+        .log-info {
+            background-color: #e3f2fd;
+        }
+
+        .log-success {
+            background-color: #e8f5e9;
+        }
+
+        .log-warning {
+            background-color: #fff3e0;
+        }
+
+        .log-error {
+            background-color: #ffebee;
+        }
+
+        .log-progress {
+            background-color: #f3e5f5;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .progress-bar {
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.5s;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+        }
+
+        .results {
+            display: none;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e8f5e9;
+            border-radius: 4px;
+        }
+
+        .download-links {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .download-btn {
+            padding: 8px 15px;
+            background-color: #2196F3;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .timestamp {
+            color: #666;
+            font-size: 0.85em;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Google Maps Scraper with Real-time Updates</h1>
+
+        <form id="scraper-form">
+            <div>
+                <label for="search_query">Search Query:</label>
+                <input type="text" id="search_query" name="search_query" required placeholder="e.g. barber in Berlin"
+                    value="barber in Berlin">
+            </div>
+
+            <div>
+                <label for="total_results">Number of Results:</label>
+                <input type="number" id="total_results" name="total_results" required min="1" max="300" value="5">
+            </div>
+
+            <button type="submit" id="start-button">Start Scraping</button>
+        </form>
+
+        <div class="progress-bar-container" id="progress-container" style="display: none;">
+            <div class="progress-bar" id="progress-bar">0%</div>
+        </div>
+
+        <div class="log-container" id="log-container">
+            <div class="log-entry log-info">Welcome! Enter a search query and number of results, then click "Start
+                Scraping".</div>
+        </div>
+
+        <div class="results" id="results">
+            <h2>Scraping Complete!</h2>
+            <p>Your data has been successfully scraped and saved.</p>
+            <div class="download-links" id="download-links">
+                <!-- Download links will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('scraper-form');
+            const startButton = document.getElementById('start-button');
+            const logContainer = document.getElementById('log-container');
+            const progressContainer = document.getElementById('progress-container');
+            const progressBar = document.getElementById('progress-bar');
+            const resultsSection = document.getElementById('results');
+            const downloadLinks = document.getElementById('download-links');
+
+            let eventSource = null;
+
+            // Add log entry with timestamp
+            function addLogEntry(message, type) {
+                const entry = document.createElement('div');
+                entry.className = `log-entry log-${type}`;
+
+                const timestamp = document.createElement('span');
+                timestamp.className = 'timestamp';
+                timestamp.textContent = new Date().toLocaleTimeString();
+
+                entry.appendChild(timestamp);
+                entry.appendChild(document.createTextNode(message));
+
+                logContainer.appendChild(entry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+
+            // Update progress bar
+            function updateProgress(current, total) {
+                const percentage = Math.round((current / total) * 100);
+                progressBar.style.width = `${percentage}%`;
+                progressBar.textContent = `${percentage}%`;
+            }
+
+            // Handle form submission
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+
+                // Reset UI
+                startButton.disabled = true;
+                startButton.textContent = 'Scraping in progress...';
+                progressContainer.style.display = 'block';
+                progressBar.style.width = '0%';
+                progressBar.textContent = '0%';
+                logContainer.innerHTML = '';
+                resultsSection.style.display = 'none';
+                downloadLinks.innerHTML = '';
+
+                addLogEntry('Starting scraper...', 'info');
+
+                // Send form data to server
+                const formData = new FormData(form);
+                fetch('/scrape', {
+                    method: 'POST',
+                    body: formData
+                }).catch(error => {
+                    addLogEntry(`Error starting scraper: ${error}`, 'error');
+                    startButton.disabled = false;
+                    startButton.textContent = 'Start Scraping';
+                });
+
+                // Connect to SSE endpoint
+                if (eventSource) {
+                    eventSource.close();
+                }
+
+                eventSource = new EventSource('/stream');
+
+                eventSource.onmessage = function (event) {
+                    const data = JSON.parse(event.data);
+
+                    if (data.status === 'complete') {
+                        // Scraping is complete
+                        eventSource.close();
+                        startButton.disabled = false;
+                        startButton.textContent = 'Start Scraping';
+                        return;
+                    }
+
+                    // Handle different message types
+                    switch (data.status) {
+                        case 'info':
+                            addLogEntry(data.message, 'info');
+                            break;
+                        case 'progress':
+                            addLogEntry(data.message, 'progress');
+                            if (data.total && data.current) {
+                                updateProgress(data.current, data.total);
+                            }
+                            break;
+                        case 'success':
+                            addLogEntry(data.message, 'success');
+
+                            // Show results and download links if available
+                            if (data.csv_file && data.json_file) {
+                                resultsSection.style.display = 'block';
+
+                                const csvLink = document.createElement('a');
+                                csvLink.href = data.csv_file;
+                                csvLink.className = 'download-btn';
+                                csvLink.textContent = 'Download CSV';
+                                csvLink.download = data.csv_file;
+
+                                const jsonLink = document.createElement('a');
+                                jsonLink.href = data.json_file;
+                                jsonLink.className = 'download-btn';
+                                jsonLink.textContent = 'Download JSON';
+                                jsonLink.download = data.json_file;
+
+                                downloadLinks.appendChild(csvLink);
+                                downloadLinks.appendChild(jsonLink);
+                            }
+                            break;
+                        case 'warning':
+                            addLogEntry(data.message, 'warning');
+                            break;
+                        case 'error':
+                            addLogEntry(data.message, 'error');
+                            break;
+                    }
+                };
+
+                eventSource.onerror = function () {
+                    addLogEntry('Connection to server lost. Reconnecting...', 'error');
+                    // EventSource will automatically attempt to reconnect
+                };
+            });
+        });
+    </script>
+</body>
+
+</html>
